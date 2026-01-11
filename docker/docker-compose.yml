@@ -1,6 +1,6 @@
 services:
   trendradar:
-    image: wantcat/trendradar:latest
+    image: tyler/trendradar:latest
     container_name: trendradar
     restart: unless-stopped
 
@@ -72,7 +72,7 @@ services:
       - IMMEDIATE_RUN=${IMMEDIATE_RUN:-true}
 
   trendradar-mcp:
-    image: wantcat/trendradar-mcp:latest
+    image: tyler/trendradar-mcp:latest
     container_name: trendradar-mcp
     restart: unless-stopped
 
