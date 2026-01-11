@@ -2,6 +2,8 @@ name: Build and Push Docker Images
 
 on:
   push:
+    branches:
+      - "**" # 所有分支
     tags:
       - "v*" # 主项目版本
       - "mcp-v*" # MCP 版本
@@ -23,8 +25,9 @@ env:
 jobs:
   build-crawler:
     runs-on: ubuntu-latest
-    # 条件：v* 标签（排除 mcp-v*）或手动触发选择 all/crawler
+    # 条件：所有分支推送、v* 标签（排除 mcp-v*）或手动触发选择 all/crawler
     if: |
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) ||
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !startsWith(github.ref, 'refs/tags/mcp-v')) ||
       (github.event_name == 'workflow_dispatch' && (github.event.inputs.image == 'all' || github.event.inputs.image == 'crawler'))
 
@@ -51,11 +54,14 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: wantcat/trendradar
+          images: tyler/trendradar
           tags: |
+            type=ref,event=branch
+            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix={{branch}}-
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -73,8 +79,9 @@ jobs:
 
   build-mcp:
     runs-on: ubuntu-latest
-    # 条件：mcp-v* 标签 或手动触发选择 all/mcp
+    # 条件：所有分支推送、mcp-v* 标签 或手动触发选择 all/mcp
     if: |
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')) ||
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/mcp-v')) ||
       (github.event_name == 'workflow_dispatch' && (github.event.inputs.image == 'all' || github.event.inputs.image == 'mcp'))
 
@@ -104,6 +111,10 @@ jobs:
             VERSION="${GITHUB_REF#refs/tags/mcp-v}"
             echo "version=${VERSION}" >> $GITHUB_OUTPUT
             echo "major_minor=$(echo $VERSION | cut -d. -f1,2)" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == refs/heads/* ]]; then
+            BRANCH="${GITHUB_REF#refs/heads/}"
+            echo "version=${BRANCH}" >> $GITHUB_OUTPUT
+            echo "major_minor=${BRANCH}" >> $GITHUB_OUTPUT
           else
             echo "version=latest" >> $GITHUB_OUTPUT
             echo "major_minor=latest" >> $GITHUB_OUTPUT
@@ -113,11 +124,14 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: wantcat/trendradar-mcp
+          images: tyler/trendradar-mcp
           tags: |
+            type=ref,event=branch
+            type=ref,event=pr
             type=raw,value=${{ steps.version.outputs.version }}
             type=raw,value=${{ steps.version.outputs.major_minor }}
-            type=raw,value=latest
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix={{branch}}-
 
       - name: Build and push
         uses: docker/build-push-action@v5

@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Dict, Optional, Callable
 
 from trendradar.report.formatter import format_title_for_platform
+from trendradar.report.helpers import format_rank_display, clean_title
 
 
 def render_feishu_content(
@@ -34,37 +35,94 @@ def render_feishu_content(
     Returns:
         格式化的飞书消息内容
     """
-    # 生成热点词汇统计部分
+    # 获取当前时间和总新闻数
+    now = get_time_func() if get_time_func else datetime.now()
+    total_titles = sum(
+        len(stat["titles"]) for stat in report_data["stats"] if stat["count"] > 0
+    )
+    
+    # 生成头部信息
+    header_content = f"**总新闻数：** {total_titles}\n\n"
+    header_content += f"**时间：** {now.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    if mode == "incremental":
+        header_content += "**类型：** 实时增量\n\n"
+    elif mode == "current":
+        header_content += "**类型：** 当前榜单\n\n"
+    else:
+        header_content += "**类型：** 热点分析报告\n\n"
+    header_content += f"{separator}\n\n"
+
+    # 生成热点词汇统计部分（表格格式）
     stats_content = ""
     if report_data["stats"]:
-        stats_content += "📊 **热点词汇统计**\n\n"
-
+        stats_content += f"📊 **热点词汇统计** (共 {len(report_data['stats'])} 条)\n\n"
+        
+        # 创建表格
+        # 表头
+        stats_content += "| 序号 | 热点词汇 | 数量 | 新闻标题 | 来源 | 排名 | 时间 |\n"
+        stats_content += "|------|---------|------|---------|------|------|------|\n"
+        
         total_count = len(report_data["stats"])
-
+        
         for i, stat in enumerate(report_data["stats"]):
             word = stat["word"]
             count = stat["count"]
-
-            sequence_display = f"<font color='grey'>[{i + 1}/{total_count}]</font>"
-
+            
+            # 获取热度图标
             if count >= 10:
-                stats_content += f"🔥 {sequence_display} **{word}** : <font color='red'>{count}</font> 条\n\n"
+                heat_icon = "🔥"
             elif count >= 5:
-                stats_content += f"📈 {sequence_display} **{word}** : <font color='orange'>{count}</font> 条\n\n"
+                heat_icon = "📈"
             else:
-                stats_content += f"📌 {sequence_display} **{word}** : {count} 条\n\n"
-
-            for j, title_data in enumerate(stat["titles"], 1):
-                formatted_title = format_title_for_platform(
-                    "feishu", title_data, show_source=True
-                )
-                stats_content += f"  {j}. {formatted_title}\n"
-
-                if j < len(stat["titles"]):
-                    stats_content += "\n"
-
+                heat_icon = "📌"
+            
+            # 处理每个新闻标题
+            for j, title_data in enumerate(stat["titles"]):
+                # 提取标题文本并清理
+                title_text = clean_title(title_data.get("title", ""))
+                link_url = title_data.get("mobile_url") or title_data.get("url", "")
+                
+                # 格式化标题（带链接）
+                if link_url:
+                    formatted_title = f"[{title_text}]({link_url})"
+                else:
+                    formatted_title = title_text
+                
+                # 新增标记
+                if title_data.get("is_new"):
+                    formatted_title = f"🆕 {formatted_title}"
+                
+                # 来源名称
+                source_name = title_data.get("source_name", "")
+                
+                # 排名显示（使用格式化函数）
+                ranks = title_data.get("ranks", [])
+                rank_threshold = title_data.get("rank_threshold", 10)
+                rank_display = format_rank_display(ranks, rank_threshold, "feishu")
+                
+                # 时间显示
+                time_display = title_data.get("time_display", "")
+                
+                # 数量显示（带颜色）
+                if count >= 10:
+                    count_display = f"<font color='red'>{count}</font>"
+                elif count >= 5:
+                    count_display = f"<font color='orange'>{count}</font>"
+                else:
+                    count_display = str(count)
+                
+                # 构建表格行
+                # 第一行显示完整信息，后续行只显示标题相关信息
+                if j == 0:
+                    stats_content += f"| {heat_icon} {i+1}/{total_count} | **{word}** | {count_display} | {formatted_title} | <font color='grey'>{source_name}</font> | {rank_display} | <font color='grey'>{time_display}</font> |\n"
+                else:
+                    stats_content += f"| | | | {formatted_title} | <font color='grey'>{source_name}</font> | {rank_display} | <font color='grey'>{time_display}</font> |\n"
+            
+            # 词组之间添加空行分隔
             if i < len(report_data["stats"]) - 1:
-                stats_content += f"\n{separator}\n\n"
+                stats_content += "| | | | | | | |\n"
+        
+        stats_content += "\n"
 
     # 生成新增新闻部分
     new_titles_content = ""
@@ -89,7 +147,7 @@ def render_feishu_content(
             new_titles_content += "\n"
 
     # 根据配置决定内容顺序
-    text_content = ""
+    text_content = header_content
     if reverse_content_order:
         # 新增热点在前，热点词汇统计在后
         if new_titles_content:
@@ -131,11 +189,8 @@ def render_feishu_content(
         for i, id_value in enumerate(report_data["failed_ids"], 1):
             text_content += f"  • <font color='red'>{id_value}</font>\n"
 
-    # 获取当前时间
-    now = get_time_func() if get_time_func else datetime.now()
-    text_content += (
-        f"\n\n<font color='grey'>更新时间：{now.strftime('%Y-%m-%d %H:%M:%S')}</font>"
-    )
+    # 更新时间已在头部显示，这里不再重复
+    text_content += f"\n\n<font color='grey'>更新时间：{now.strftime('%Y-%m-%d %H:%M:%S')}</font>"
 
     if update_info:
         text_content += f"\n<font color='grey'>TrendRadar 发现新版本 {update_info['remote_version']}，当前 {update_info['current_version']}</font>"
